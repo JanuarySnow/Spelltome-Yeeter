@@ -6,6 +6,10 @@ using Mutagen.Bethesda.Skyrim;
 using System.Threading.Tasks;
 using System.IO;
 using Mutagen.Bethesda.Plugins;
+using System.Collections.Generic;
+using DynamicData;
+using Noggog;
+using System.Collections;
 
 
 namespace SpellTomePriceFixPatcher
@@ -51,7 +55,7 @@ namespace SpellTomePriceFixPatcher
                 Console.WriteLine("*************************");
 
             }
-            foreach (var placedobjectgetter in state.LoadOrder.PriorityOrder.OnlyEnabled().PlacedObject().WinningContextOverrides(state.LinkCache))
+            foreach (var placedobjectgetter in state.LoadOrder.PriorityOrder.PlacedObject().WinningContextOverrides(state.LinkCache))
             {
                 //Find all placed tomes
                 //If already disabled, skip
@@ -63,23 +67,18 @@ namespace SpellTomePriceFixPatcher
                         // if its a spell tome
                         if (placedObjectBase.Teaches is IBookSpellGetter teachedSpell)
                         {
-                            FormKey book_key = placedobjectgetter.Record.Base.FormKey;
-                            FormLink<IBookGetter> myBookLink = new FormLink<IBookGetter>(book_key);
-                            foreach (var book_record_context in myBookLink.ResolveAllContexts<ISkyrimMod, ISkyrimModGetter, IBook, IBookGetter>(state.LinkCache))
+                            ModKey current_mod = placedobjectgetter.Record.Base.FormKey.ModKey;
+                            if (current_mod != null)
                             {
-                                ModKey current_mod = book_record_context.ModKey;
-                                if (current_mod != null)
+                                if (whitelisted_mods.Contains(current_mod))
                                 {
-                                    if (whitelisted_mods.Contains(current_mod))
-                                    {
-                                        continue;
-                                    }
-                                    else
-                                    {
-                                        // disable it
-                                        IPlacedObject modifiedObject = placedobjectgetter.GetOrAddAsOverride(state.PatchMod);
-                                        modifiedObject.MajorRecordFlagsRaw |= 0x0000_0800;
-                                    }
+                                    continue;
+                                }
+                                else
+                                {
+                                    // disable it
+                                    IPlacedObject modifiedObject = placedobjectgetter.GetOrAddAsOverride(state.PatchMod);
+                                    modifiedObject.MajorRecordFlagsRaw |= 0x0000_0800;
                                 }
                             }
                         }
@@ -96,29 +95,21 @@ namespace SpellTomePriceFixPatcher
                 if (leveledList.Entries == null) continue;
                 if (leveledList.EditorID == null) continue;
                 bool to_override = false;
-                bool to_skip = false;
+                List<int> index_remove = new List<int>();
                 FormKey lvl_key = leveledList.FormKey;
                 FormLink<ILeveledItemGetter> my_lvl_link = new FormLink<ILeveledItemGetter>(lvl_key);
                 // check if this leveled list is in the mod whitelist
-                foreach (var lvl_record_context in my_lvl_link.ResolveAllContexts<ISkyrimMod, ISkyrimModGetter, ILeveledItem, ILeveledItemGetter>(state.LinkCache))
+                ModKey current_mod = lvl_key.ModKey;
+                if (current_mod != null)
                 {
-                    ModKey current_mod = lvl_record_context.ModKey;
-                    if (current_mod != null)
+                    if (whitelisted_mods.Contains(current_mod))
                     {
-                        if (whitelisted_mods.Contains(current_mod))
-                        {
-                            to_skip = true;
-                            break;
-                        }
+                        break;
                     }
-                }
-                // in the whitelist - skip
-                if(to_skip)
-                {
-                    continue;
                 }
                 for (var i = 0; i < leveledList.Entries.Count; i++)
                 {
+                    
                     var entry = leveledList.Entries[i];
                     if (entry.Data == null)
                     {
@@ -132,6 +123,7 @@ namespace SpellTomePriceFixPatcher
                             if (resolved.Teaches is IBookSpellGetter teachedSpell)
                             {
                                 to_override = true;
+                                index_remove.Add(i);
                             }
                             //detected at least one spell tome entry
                         }
@@ -140,30 +132,17 @@ namespace SpellTomePriceFixPatcher
                 if (to_override)
                 {
                     var modifiedList = state.PatchMod.LeveledItems.GetOrAddAsOverride(leveledList);
-                    if (modifiedList != null)
+                    if (modifiedList != null && modifiedList.Entries != null)
                     {
-#pragma warning disable CS8602 // Dereference of a possibly null reference.
                         for (int i = modifiedList.Entries.Count - 1; i >= 0; i--)
-#pragma warning restore CS8602 // Dereference of a possibly null reference.
                         {
-                            var entry = modifiedList.Entries[i];
-                            if (entry.Data == null)
+                            if (index_remove.Contains(i)) // Condition to remove even numbers, for example
                             {
-                                continue;
+                                modifiedList.Entries.RemoveAt(i);
                             }
-                            else
-                            {
-                                if (state.LinkCache.TryResolve<IBookGetter>(entry.Data.Reference.FormKey,
-                                                            out var resolved))
-                                {
-                                    if (resolved.Teaches is IBookSpellGetter teachedSpell)
-                                    {
-                                        //erase it
-                                        modifiedList.Entries.Remove(entry);
-                                    }
-                                }
-                            }
+
                         }
+
                     }
                 }
             }

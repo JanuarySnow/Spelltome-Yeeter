@@ -57,24 +57,63 @@ namespace SpellTomePriceFixPatcher
             // Find all tomes in merchant lists
             foreach (var leveledList in state.LoadOrder.PriorityOrder.LeveledItem().WinningOverrides())
             {
+
                 //If already disabled, skip
                 if (leveledList.MajorRecordFlagsRaw == 0x0000_0800) continue;
                 if (leveledList.Entries == null) continue;
                 if (leveledList.EditorID == null) continue;
+                bool to_override = false;
+                List<int> index_remove = new List<int>();
+                FormKey lvl_key = leveledList.FormKey;
+                FormLink<ILeveledItemGetter> my_lvl_link = new FormLink<ILeveledItemGetter>(lvl_key);
+                // check if this leveled list is in the mod whitelist
+                ModKey current_mod = lvl_key.ModKey;
+                if (current_mod != null)
+                {
+                    if (whitelisted_mods.Contains(current_mod))
+                    {
+                        break;
+                    }
+                }
+                for (var i = 0; i < leveledList.Entries.Count; i++)
+                {
 
-                if (whitelisted_mods.Contains(leveledList.FormKey.ModKey)) continue;
-
-                if (leveledList.Entries.Any(e => e.Data?.Reference.TryResolve<IBookGetter>(state.LinkCache) != null))
+                    var entry = leveledList.Entries[i];
+                    if (entry.Data == null)
+                    {
+                        continue;
+                    }
+                    else
+                    {
+                        if (state.LinkCache.TryResolve<IBookGetter>(entry.Data.Reference.FormKey,
+                                                    out var resolved))
+                        {
+                            if (resolved.Teaches is IBookSpellGetter teachedSpell)
+                            {
+                                to_override = true;
+                                index_remove.Add(i);
+                            }
+                            //detected at least one spell tome entry
+                        }
+                    }
+                }
+                if (to_override)
                 {
                     var modifiedList = state.PatchMod.LeveledItems.GetOrAddAsOverride(leveledList);
-                    modifiedList.Entries ??= new();
+                    if (modifiedList != null && modifiedList.Entries != null)
+                    {
+                        for (int i = modifiedList.Entries.Count - 1; i >= 0; i--)
+                        {
+                            if (index_remove.Contains(i)) // Condition to remove even numbers, for example
+                            {
+                                modifiedList.Entries.RemoveAt(i);
+                            }
 
-                    modifiedList.Entries.SetTo(modifiedList.Entries
-                        .ToArray()
-                        .Where(e => e.Data?.Reference.TryResolve<IBookGetter>(state.LinkCache) == null));
+                        }
+
+                    }
                 }
             }
         }
     }
-
 }
